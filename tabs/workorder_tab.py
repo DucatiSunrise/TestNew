@@ -1,3 +1,22 @@
+"""
+workorder_tab.py
+
+This module defines the WorkOrderTab class for managing the Work Order tab in a GUI application. 
+It provides functionality for creating, editing, and managing work orders, including support 
+for file attachments, parts, notifications, and a manager workbench for reviewing and closing 
+work orders.
+
+Classes:
+    WorkOrderTab - A GUI interface for work order management.
+
+Dependencies:
+    - tkinter for GUI components.
+    - mysql.connector for database connectivity.
+    - database module for executing database operations and handling notifications.
+
+Author: McClure, M.T.
+Date: 12-2-24
+"""
 import os
 import datetime
 from tkinter import ttk, filedialog, messagebox
@@ -51,13 +70,17 @@ class WorkOrderTab:
         self.setup_workbench_tab()
 
     def setup_search_tab(self):
+        """
+        Setup search tab GUI.
+        """
         # Search filters
         ttk.Label(self.search_tab, text="Status:").grid(row=0, column=0, padx=10, pady=10)
         self.status_filter = ttk.Combobox(self.search_tab, values=["Open", "Closed", "On Hold"])
         self.status_filter.grid(row=0, column=1, padx=10, pady=10)
 
         ttk.Label(self.search_tab, text="Search By:").grid(row=0, column=2, padx=10, pady=10)
-        self.search_filter = ttk.Combobox(self.search_tab, values=["Technician", "Priority", "Date Range"])
+        self.search_filter = ttk.Combobox(self.search_tab,
+                values=["Technician", "Priority", "Date Range"])
         self.search_filter.grid(row=0, column=3, padx=10, pady=10)
 
         self.search_entry = ttk.Entry(self.search_tab)
@@ -67,7 +90,8 @@ class WorkOrderTab:
         self.search_button.grid(row=0, column=5, padx=10, pady=10)
 
         # Search results
-        self.search_results = ttk.Treeview(self.search_tab, columns=("ID", "Customer", "Status", "Technician"), show="headings")
+        self.search_results = ttk.Treeview(self.search_tab,
+                columns=("ID", "Customer", "Status", "Technician"), show="headings")
         self.search_results.heading("ID", text="ID")
         self.search_results.heading("Customer", text="Customer")
         self.search_results.heading("Status", text="Status")
@@ -75,10 +99,61 @@ class WorkOrderTab:
         self.search_results.grid(row=1, column=0, columnspan=6, padx=10, pady=10)
 
     def perform_search(self):
-        # Placeholder for search functionality
-        messagebox.showinfo("Search", "Performing search...")
+        """
+        Perform a search based on the selected filters and populate the Treeview with results.
+        """
+        try:
+            # Collect filter values
+            status = self.status_filter.get()
+            search_by = self.search_filter.get()
+            search_value = self.search_entry.get().strip()
+
+            # Build the query dynamically based on user input
+            query = "SELECT id, customer_id, status, technician FROM work_orders WHERE 1=1"
+            params = []
+
+            # Add filters to the query
+            if status:
+                query += " AND status = %s"
+                params.append(status)
+
+            if search_by == "Technician":
+                query += " AND technician LIKE %s"
+                params.append(f"%{search_value}%")
+            elif search_by == "Priority":
+                query += " AND priority = %s"
+                params.append(search_value)
+            elif search_by == "Date Range":
+                # Assuming date range input in a specific format (e.g., "YYYY-MM-DD to YYYY-MM-DD")
+                if "to" in search_value:
+                    start_date, end_date = map(str.strip, search_value.split("to"))
+                    query += " AND created_at BETWEEN %s AND %s"
+                    params.extend([start_date, end_date])
+
+            # Execute the query
+            results = execute_query(query, tuple(params))
+
+            # Clear existing Treeview entries
+            self.search_results.delete(*self.search_results.get_children())
+
+            # Populate the Treeview with search results
+            for row in results:
+                self.search_results.insert("", "end", values=row)
+
+            # Show a success message
+            messagebox.showinfo("Search", f"Found {len(results)} results.")
+
+        except ValueError as ve:
+            # Handle validation issues
+            messagebox.showerror("Validation Error", str(ve))
+        except DatabaseError as de:
+            # Handle database-related errors
+            messagebox.showerror("Database Error", f"An error occurred while searching: {de}")
 
     def setup_details_tab(self):
+        """
+        Setup tab to show work order details.
+        """
         # Work order details fields
         ttk.Label(self.details_tab, text="Work Order Number:").grid(row=0, column=0, padx=10, pady=10)
         self.work_order_number = ttk.Entry(self.details_tab, state='readonly')
