@@ -1,0 +1,1 @@
+# Main window + QTabWidget structure

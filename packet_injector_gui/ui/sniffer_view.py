@@ -1,0 +1,1 @@
+# Layout & widgets for Sniffer View tab
