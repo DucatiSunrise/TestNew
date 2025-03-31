@@ -1,7 +1,10 @@
 # Main window + QTabWidget structure
 
 from PyQt6.QtWidgets import QApplication, QMainWindow, QTabWidget, QWidget, QVBoxLayout
+from ui.main_dashboard import PacketOverviewPanel
+from ui.sniffer_view import SnifferView
 import sys
+from scapy.all import Ether, IP, TCP, Raw
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -9,6 +12,11 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Packet Injector GUI")
         self.setGeometry(100, 100, 1000, 700)
         self.init_ui()
+        self.setFixedSize(self.size())
+
+    def handle_sniffed_packet(self, packet):
+        # Update the packet viewer (and optionally add to queue)
+        self.overview_panel.update_packet(packet)
 
     def init_ui(self):
         self.tabs = QTabWidget()
@@ -25,10 +33,29 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.sniffer_tab, "🔍 Sniffer View")
         self.tabs.addTab(self.settings_tab, "⚙️ Settings")
 
-        # Assign basic vertical layouts for now
-        self.dashboard_tab.setLayout(QVBoxLayout())
+        # Main Dashboard layout
+        self.overview_panel = PacketOverviewPanel()
+        dashboard_layout = QVBoxLayout()
+        dashboard_layout.addWidget(self.overview_panel)
+        self.dashboard_tab.setLayout(dashboard_layout)
+
+        # Inject a sample Scapy packet into the overview
+        sample_packet = (
+            Ether() /
+            IP(src="192.168.1.100", dst="192.168.1.1") /
+            TCP(sport=1234, dport=80, flags="S") /
+            Raw(load="GET / HTTP/1.1\r\nHost: example.com\r\n\r\n")
+        )
+        self.overview_panel.update_packet(sample_packet)
+
+        # Create the Sniffer View and set it as the sniffer tab
+        self.sniffer_view = SnifferView(packet_callback=self.handle_sniffed_packet)
+        sniffer_layout = QVBoxLayout()
+        sniffer_layout.addWidget(self.sniffer_view)
+        self.sniffer_tab.setLayout(sniffer_layout)
+
+        # Other tabs stay empty for now
         self.editor_tab.setLayout(QVBoxLayout())
-        self.sniffer_tab.setLayout(QVBoxLayout())
         self.settings_tab.setLayout(QVBoxLayout())
 
         self.setCentralWidget(self.tabs)
