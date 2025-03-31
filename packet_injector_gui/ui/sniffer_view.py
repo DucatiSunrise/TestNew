@@ -4,14 +4,7 @@ from PyQt6.QtWidgets import (
     QLabel, QComboBox, QTextEdit, QGroupBox, QLineEdit
 )
 from PyQt6.QtCore import QThread, pyqtSignal
-import os
-import builtins
-
-# Apply SCAPY_CACHE override if provided by main.py
-if hasattr(builtins, "__SCAPY_CACHE_PATCH__"):
-    os.environ["SCAPY_CACHE"] = builtins.__SCAPY_CACHE_PATCH__
-
-from scapy.all import sniff, get_if_list
+from logic.scapy_handler import list_interfaces, start_sniffer
 
 class SnifferThread(QThread):
     packet_captured = pyqtSignal(object)
@@ -21,18 +14,25 @@ class SnifferThread(QThread):
         self.iface = iface
         self.bpf_filter = bpf_filter
         self.running = True
+        self.sniffer = None
 
     def run(self):
-        sniff(iface=self.iface, filter=self.bpf_filter, prn=self.handle_packet, store=False, stop_filter=self.should_stop)
+        self.sniffer = start_sniffer(
+            iface=self.iface,
+            callback=self.handle_packet,
+            bpf_filter=self.bpf_filter
+        )
+        self.sniffer.start()
+        self.sniffer.join()  # Keep thread alive while sniffing
 
     def handle_packet(self, packet):
-        self.packet_captured.emit(packet)
-
-    def should_stop(self, packet):
-        return not self.running
+        if self.running:
+            self.packet_captured.emit(packet)
 
     def stop(self):
         self.running = False
+        if self.sniffer:
+            self.sniffer.stop()
 
 class SnifferView(QWidget):
     def __init__(self, packet_callback, parent=None):
@@ -49,7 +49,7 @@ class SnifferView(QWidget):
         control_layout = QHBoxLayout()
 
         self.interface_dropdown = QComboBox()
-        self.interface_dropdown.addItems(get_if_list())
+        self.interface_dropdown.addItems(list_interfaces())
 
         self.filter_input = QLineEdit()
         self.filter_input.setPlaceholderText("Optional BPF filter (e.g., tcp port 80)")

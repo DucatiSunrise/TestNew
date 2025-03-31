@@ -4,7 +4,7 @@ from PyQt6.QtWidgets import QApplication, QMainWindow, QTabWidget, QWidget, QVBo
 from ui.main_dashboard import PacketOverviewPanel
 from ui.sniffer_view import SnifferView
 import sys
-from scapy.all import Ether, IP, TCP, Raw
+from logic.scapy_handler import build_sample_packet
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -40,12 +40,7 @@ class MainWindow(QMainWindow):
         self.dashboard_tab.setLayout(dashboard_layout)
 
         # Inject a sample Scapy packet into the overview
-        sample_packet = (
-            Ether() /
-            IP(src="192.168.1.100", dst="192.168.1.1") /
-            TCP(sport=1234, dport=80, flags="S") /
-            Raw(load="GET / HTTP/1.1\r\nHost: example.com\r\n\r\n")
-        )
+        sample_packet = build_sample_packet()
         self.overview_panel.update_packet(sample_packet)
 
         # Create the Sniffer View and set it as the sniffer tab

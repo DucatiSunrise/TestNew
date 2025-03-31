@@ -1,18 +1,20 @@
-# Entry point (initializes and runs the app)
-
 import os
 import sys
+import builtins
 
-# Force Scapy to use a custom writable cache location
+# Set up Scapy cache path for .exe compatibility
 custom_cache_path = os.path.join(os.getcwd(), "scapy_cache")
 os.makedirs(custom_cache_path, exist_ok=True)
 os.environ["SCAPY_CACHE"] = custom_cache_path
 os.environ["SystemRoot"] = "C:\\Windows"
 
+# Share the patch globally so other files can reuse it
+builtins.__SCAPY_CACHE_PATCH__ = custom_cache_path
+
 # Ensure current directory is in Python's path
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
-# ✅ Patch Scapy to avoid default .cache access issues in compiled .exe
+# Prevent accidental fallback to protected .cache directory
 try:
     from scapy import config
     config.conf.cache_path = custom_cache_path
@@ -22,11 +24,11 @@ try:
         try:
             os.rename(default_cache_path, default_cache_path + "_disabled")
         except PermissionError:
-            pass  # Ignore if read-only
+            pass
 except ImportError:
-    pass  # Scapy not loaded yet — safe for PyInstaller build time
+    pass
 
-# Launch the main GUI
+# Run the GUI
 from core.app import run_app
 
 if __name__ == '__main__':
