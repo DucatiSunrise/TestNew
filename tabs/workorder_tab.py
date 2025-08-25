@@ -581,7 +581,109 @@ class WorkOrderTab:
                 messagebox.showerror("Work Order", f"Work order {work_order_id} not found.")
             except Exception as e:
                 messagebox.showerror("Work Order", f"Failed to load work order {work_order_id}: {e}")
+                
+    def show_work_order_list_for_customer(self, customer_id: int):
+        """Populate the Search tab with this customer's work orders and switch to it."""
+        try:
+            rows = fetch_all(
+                """
+                SELECT id, customer_id, status, technician
+                FROM work_orders
+                WHERE customer_id = %s
+                ORDER BY created_at DESC
+                """,
+                (customer_id,),
+            )
+            # Clear & refill the search Treeview
+            if hasattr(self, "search_results"):
+                self.search_results.delete(*self.search_results.get_children())
+                for r in rows:
+                    self.search_results.insert("", "end", values=r)
 
+            # Flip to Search tab if you keep a handle to it
+            if hasattr(self, "notebook") and hasattr(self, "search_tab"):
+                self.notebook.select(self.search_tab)
+        except Exception as e:
+            messagebox.showerror(
+                "Work Orders",
+                f"Failed to load list for customer {customer_id}: {e}",
+            )
+
+    def load_work_order(self, work_order_id: int):
+        """Load a single work order into the Details tab. Fills the widgets that exist."""
+        try:
+            row = fetch_one(
+                """
+                SELECT id, technician, status, priority, notes
+                FROM work_orders
+                WHERE id = %s
+                """,
+                (work_order_id,),
+            )
+            if not row:
+                messagebox.showerror("Work Order", f"Work order {work_order_id} not found.")
+                return
+
+            wid, tech, status, priority, notes = row
+
+            if hasattr(self, "work_order_number"):
+                self.work_order_number.config(state="normal")
+                self.work_order_number.delete(0, "end")
+                self.work_order_number.insert(0, str(wid))
+                self.work_order_number.config(state="readonly")
+
+            if hasattr(self, "assigned_technician"):
+                self.assigned_technician.delete(0, "end")
+                self.assigned_technician.insert(0, tech or "")
+
+            if hasattr(self, "priority"):
+                try:
+                    self.priority.set(priority or "")
+                except Exception:
+                    pass
+
+            if hasattr(self, "notes_text"):
+                try:
+                    self.notes_text.delete("1.0", "end")
+                    self.notes_text.insert("1.0", notes or "")
+                except Exception:
+                    pass
+
+            if hasattr(self, "notebook") and hasattr(self, "details_tab"):
+                self.notebook.select(self.details_tab)
+        except Exception as e:
+            messagebox.showerror(
+                "Work Order",
+                f"Failed to load work order {work_order_id}: {e}",
+            )
+
+    def prefill_from_payload(self, p: dict):
+        """Best-effort prefill from scan payload."""
+        try:
+            if p.get("dt") and hasattr(self, "work_order_type"):
+                try:
+                    self.work_order_type.set(p["dt"])
+                except Exception:
+                    pass
+
+            if p.get("dm") and hasattr(self, "manufacturer"):
+                try:
+                    self.manufacturer.delete(0, "end")
+                    self.manufacturer.insert(0, p["dm"])
+                except Exception:
+                    pass
+
+            if p.get("wo") and hasattr(self, "work_order_number"):
+                try:
+                    self.work_order_number.config(state="normal")
+                    self.work_order_number.delete(0, "end")
+                    self.work_order_number.insert(0, p["wo"])
+                    self.work_order_number.config(state="readonly")
+                except Exception:
+                    pass
+        except Exception:
+            # prefill is best-effort
+            pass
 
     # Optional: keep a dict-based loader for future use
     def load_work_order_from_dict(self, work_order: dict):
