@@ -79,6 +79,31 @@ def execute_query(query, params=(), commit=False):
         raise DatabaseError(f"Query execution failed: {e}") from e  # Explicit re-raise
 
 # Database queries
+def find_customer_by_barcode(barcode):
+    return fetch_one("SELECT id FROM customers WHERE barcode=%s", (barcode,))
+
+def find_customer_by_contact(phone_digits=None, email=None):
+    # phone stored as digits-only recommended; adjust if you store formatted
+    if phone_digits:
+        r = fetch_one("SELECT id FROM customers WHERE REPLACE(REPLACE(REPLACE(phone,'-',''),'(',''),')','') REGEXP %s LIMIT 1",
+                      (phone_digits,))
+        if r: return r
+    if email:
+        r = fetch_one("SELECT id FROM customers WHERE email=%s LIMIT 1", (email,))
+        if r: return r
+    return None
+
+def find_customer_by_name(first, last):
+    return fetch_one("SELECT id FROM customers WHERE first_name=%s AND last_name=%s LIMIT 1",
+                     (first, last))
+
+def find_work_order_by_code_or_number(code_or_no):
+    # support either explicit scan_code or an order number text like WO-1042
+    r = fetch_one("SELECT id, customer_id FROM work_orders WHERE scan_code=%s LIMIT 1", (code_or_no,))
+    if r: return r
+    r = fetch_one("SELECT id, customer_id FROM work_orders WHERE id=%s LIMIT 1", (code_or_no,))
+    return r
+
 def fetch_one(query, params=()):
     """Fetch one record from the database."""
     try:
@@ -226,6 +251,24 @@ def has_permission(user_role, required_roles):
         return False
     return True
 
+def get_all_users():
+    query = "SELECT id, username, role FROM users"
+    return fetch_all(query)
+
+def update_user_role(user_id, new_role):
+    query = "UPDATE users SET role = %s WHERE id = %s"
+    execute_query(query, (new_role, user_id), commit=True)
+
+def reset_user_password(user_id, new_password):
+    query = "UPDATE users SET password = %s WHERE id = %s"
+    execute_query(query, (new_password, user_id), commit=True)
+
+def delete_user(user_id):
+    query = "DELETE FROM users WHERE id = %s"
+    execute_query(query, (user_id,), commit=True)
+
+
+# Customer Management
 class CustomerManager:
     """
     Class to manage customer-related database operations.

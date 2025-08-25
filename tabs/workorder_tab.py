@@ -19,21 +19,23 @@ Date: 12-2-24
 """
 import os
 import datetime
+import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import mysql.connector
 from database import (
-                        insert_file_metadata,
-                        get_notifications,
-                        execute_query,
-                        DatabaseError,
-                        add_work_order as db_add_work_order
-                    )
+insert_file_metadata,
+get_notifications,
+execute_query,DatabaseError,
+add_work_order as db_add_work_order,
+fetch_one, fetch_all,
+)
 class WorkOrderTab:
     """
     Generate workorder tab layout and GUIS
     """
-    def __init__(self, parent_frame):
+    def __init__(self, parent_frame, user_role="technician"):
         self.parent_frame = parent_frame
+        self.user_role = user_role
 
         # Create Notebook for Tabs within the work order section
         self.notebook = ttk.Notebook(parent_frame)
@@ -97,6 +99,7 @@ class WorkOrderTab:
         self.search_results.heading("Status", text="Status")
         self.search_results.heading("Technician", text="Technician")
         self.search_results.grid(row=1, column=0, columnspan=6, padx=10, pady=10)
+        self.search_results.bind("<Double-1>", self._on_search_row_open)
 
     def perform_search(self):
         """
@@ -151,6 +154,20 @@ class WorkOrderTab:
             messagebox.showerror("Database Error", f"An error occurred while searching: {de}")
 
     def setup_details_tab(self):
+        # Quick find by ID
+        row = 0
+        ttk.Label(self.details_tab, text="Find WO ID:").grid(row=row, column=0, padx=10, pady=10, sticky="e")
+        self.quick_wid_entry = ttk.Entry(self.details_tab, width=12)
+        self.quick_wid_entry.grid(row=row, column=1, padx=10, pady=10, sticky="w")
+        ttk.Button(self.details_tab, text="Load", command=lambda: self._quick_load_wo()).grid(row=row, column=2, padx=10, pady=10)
+        row += 1  # shift starting row for the rest
+
+        # then shift all your existing rows down by using 'row' variable
+        ttk.Label(self.details_tab, text="Work Order Number:").grid(row=row, column=0, padx=10, pady=10)
+        self.work_order_number = ttk.Entry(self.details_tab, state='readonly')
+        self.work_order_number.grid(row=row, column=1, padx=10, pady=10); row += 1
+        # ...and continue replacing your hard-coded row numbers with 'row += 1'
+
         """
         Setup tab to show work order details.
         """
@@ -187,6 +204,41 @@ class WorkOrderTab:
         ttk.Label(self.details_tab, text="Serial Number (S/N):").grid(row=7, column=0, padx=10, pady=10)
         self.serial_number = ttk.Entry(self.details_tab)
         self.serial_number.grid(row=7, column=1, padx=10, pady=10)
+        # Customer ID
+        ttk.Label(self.details_tab, text="Customer ID:").grid(row=8, column=0, padx=10, pady=10)
+        self.customer_id_entry = ttk.Entry(self.details_tab)
+        self.customer_id_entry.grid(row=8, column=1, padx=10, pady=10)
+
+        # Status
+        ttk.Label(self.details_tab, text="Status:").grid(row=9, column=0, padx=10, pady=10)
+        self.status_combobox = ttk.Combobox(
+            self.details_tab,
+            values=["Active", "On Hold", "Completed", "Closed", "Pending"]
+        )
+        self.status_combobox.grid(row=9, column=1, padx=10, pady=10)
+
+        # Notes
+        ttk.Label(self.details_tab, text="Notes:").grid(row=10, column=0, padx=10, pady=10)
+        self.notes_text = tk.Text(self.details_tab, height=4, width=40)
+        self.notes_text.grid(row=10, column=1, padx=10, pady=10, sticky="w")
+        for i in range(0, 11):
+            self.details_tab.rowconfigure(i, weight=1)
+        self.details_tab.columnconfigure(1, weight=1)
+
+        # Quick find by Work Order ID (on the Details tab itself)
+        ttk.Label(self.details_tab, text="Find WO ID:").grid(row=0, column=0, padx=10, pady=10, sticky="e")
+        self.quick_wid_entry = ttk.Entry(self.details_tab, width=12)
+        self.quick_wid_entry.grid(row=0, column=1, padx=10, pady=10, sticky="w")
+        ttk.Button(self.details_tab, text="Load", command=self._quick_load_wo)\
+        .grid(row=0, column=2, padx=10, pady=10)
+
+    def _quick_load_wo(self):
+        try:
+            wid = int(self.quick_wid_entry.get().strip())
+        except Exception:
+            messagebox.showerror("Find", "Enter a numeric Work Order ID.")
+            return
+        self.load_work_order_by_id(wid)
 
     def setup_parts_tab(self):
         # Parts fields
@@ -281,7 +333,7 @@ class WorkOrderTab:
             messagebox.showinfo("Close Work Order", f"Work Order {work_order_id} closed. Customer contact alert set for 24 hours.")
         else:
             messagebox.showwarning("Warning", "Please select a work order to close.")
-
+            
     def setup_attachments_tab(self):
         # Attachments fields
         self.upload_button = ttk.Button(self.attachments_tab, text="Upload File", command=self.upload_file)
@@ -315,11 +367,10 @@ class WorkOrderTab:
         )
         self.add_work_order_button.grid(row=0, column=0, padx=10, pady=10)
 
-
-        self.edit_work_order_button = ttk.Button(self.actions_tab, text="Edit Work Order", command=self.edit_work_order)
+        self.edit_work_order_button = ttk.Button(self.actions_tab, text="Edit Work Order", command=self.handle_edit_current)
         self.edit_work_order_button.grid(row=0, column=1, padx=10, pady=10)
 
-        self.delete_work_order_button = ttk.Button(self.actions_tab, text="Delete Work Order", command=self.delete_work_order)
+        self.delete_work_order_button = ttk.Button(self.actions_tab, text="Delete Work Order", command=self.handle_delete_current)
         self.delete_work_order_button.grid(row=0, column=2, padx=10, pady=10)
 
         self.save_note_button = ttk.Button(self.actions_tab, text="Save/Edit Note", command=self.save_note)
@@ -352,15 +403,19 @@ class WorkOrderTab:
 
     def add_work_order(self, data):
         """
-        Add a new work order to the database and notify the user.
+        Add a new work order, then load it into the form.
         """
         try:
-            # Call the database function
             db_add_work_order(data)
-            # Notify the user of success
-            messagebox.showinfo("Add Work Order", "Work order added successfully.")
+            # fetch the new id
+            row = fetch_one("SELECT LAST_INSERT_ID()")
+            new_id = row[0] if row else None
+            messagebox.showinfo("Add Work Order", f"Work order added successfully. ID: {new_id or 'Unknown'}")
+            if new_id:
+                self.load_work_order_by_id(new_id)
+            # optionally refresh search results
+            # self.perform_search()
         except DatabaseError as e:
-            # Notify the user of any database errors
             messagebox.showerror("Database Error", f"Failed to add work order: {e}")
 
     def edit_work_order(self, work_order_id, data):
@@ -412,11 +467,178 @@ class WorkOrderTab:
         """
         try:
             return {
-                "customer_id": self.customer_id_entry.get().strip(),  # Assume you have an entry field for Customer ID
-                "status": self.status_combobox.get(),                # Assume you have a combobox for status
-                "priority": self.priority_combobox.get(),            # Assume you have a combobox for priority
-                "technician": self.technician_combobox.get(),        # Assume you have a combobox for technician
-                "notes": self.notes_text.get("1.0", "end-1c").strip()  # Text widget for notes
+                "customer_id": self.customer_id_entry.get().strip(),
+                "status": self.status_combobox.get().strip(),
+                "priority": self.priority.get().strip(),                 # you already have self.priority
+                "technician": self.assigned_technician.get().strip(),    # you already have self.assigned_technician
+                "notes": self.notes_text.get("1.0", "end-1c").strip()
             }
         except AttributeError as e:
             raise ValueError(f"Failed to collect data: {e}") from e
+
+    def _on_search_row_open(self, event=None):
+        """Double-click handler: open the selected work order into the Details tab."""
+        sel = self.search_results.selection()
+        if not sel:
+            return
+        values = self.search_results.item(sel[0], "values")
+        # Treeview columns: ("ID", "Customer", "Status", "Technician")
+        try:
+            work_order_id = int(values[0])
+        except Exception:
+            messagebox.showerror("Open", "Could not read Work Order ID from selection.")
+            return
+        self.load_work_order_by_id(work_order_id)
+
+    def load_work_order_by_id(self, work_order_id: int):
+        """
+        Populate all Details fields for a given Work Order ID.
+        Tries extended columns first; falls back to minimal set if missing.
+        """
+        def _populate_from_tuple(t, extended=False):
+            if extended:
+                (wid, customer_id, tech, status, priority, notes,
+                wotype, dev_type, manu, mdl, serial) = t
+            else:
+                (wid, customer_id, tech, status, priority, notes) = t
+                wotype = dev_type = manu = mdl = serial = None
+
+            # Work order number (readonly)
+            self.work_order_number.config(state="normal")
+            self.work_order_number.delete(0, "end")
+            self.work_order_number.insert(0, str(wid))
+            self.work_order_number.config(state="readonly")
+
+            # Core fields
+            self.customer_id_entry.delete(0, "end")
+            self.customer_id_entry.insert(0, str(customer_id) if customer_id is not None else "")
+
+            self.assigned_technician.delete(0, "end")
+            self.assigned_technician.insert(0, tech or "")
+
+            self.status_combobox.set(status or "")
+            self.priority.set(priority or "")
+
+            self.notes_text.delete("1.0", "end")
+            self.notes_text.insert("1.0", notes or "")
+
+            # Extended (best-effort)
+            try:
+                if hasattr(self, "work_order_type"):
+                    self.work_order_type.set(wotype or "")
+            except Exception:
+                pass
+            try:
+                if hasattr(self, "device_type"):
+                    self.device_type.set(dev_type or "")
+            except Exception:
+                pass
+            try:
+                self.manufacturer.delete(0, "end"); self.manufacturer.insert(0, manu or "")
+            except Exception:
+                pass
+            try:
+                self.model.delete(0, "end"); self.model.insert(0, mdl or "")
+            except Exception:
+                pass
+            try:
+                self.serial_number.delete(0, "end"); self.serial_number.insert(0, serial or "")
+            except Exception:
+                pass
+
+            # Show the tab
+            self.notebook.select(self.details_tab)
+
+        try:
+            # Try extended columns first
+            row = fetch_one(
+                """
+                SELECT id, customer_id, technician, status, priority, notes,
+                    work_order_type, device_type, manufacturer, model, serial_number
+                FROM work_orders
+                WHERE id = %s
+                """,
+                (work_order_id,)
+            )
+            if row:
+                _populate_from_tuple(row, extended=True)
+                return
+            messagebox.showerror("Work Order", f"Work order {work_order_id} not found.")
+        except Exception:
+            # If extended columns don’t exist yet, fall back to minimal set
+            try:
+                row = fetch_one(
+                    """
+                    SELECT id, customer_id, technician, status, priority, notes
+                    FROM work_orders
+                    WHERE id = %s
+                    """,
+                    (work_order_id,)
+                )
+                if row:
+                    _populate_from_tuple(row, extended=False)
+                    return
+                messagebox.showerror("Work Order", f"Work order {work_order_id} not found.")
+            except Exception as e:
+                messagebox.showerror("Work Order", f"Failed to load work order {work_order_id}: {e}")
+
+
+    # Optional: keep a dict-based loader for future use
+    def load_work_order_from_dict(self, work_order: dict):
+        """Populate Details from a dict payload (used by other parts of the app)."""
+        self.work_order_number.config(state="normal")
+        self.work_order_number.delete(0, "end")
+        self.work_order_number.insert(0, work_order.get("id", ""))
+        self.work_order_number.config(state="readonly")
+
+        self.customer_id_entry.delete(0, "end")
+        self.customer_id_entry.insert(0, work_order.get("customer_id", ""))
+
+        self.status_combobox.set(work_order.get("status", ""))
+        self.priority.set(work_order.get("priority", ""))
+        self.assigned_technician.delete(0, "end")
+        self.assigned_technician.insert(0, work_order.get("technician", ""))
+
+        self.notes_text.delete("1.0", "end")
+        self.notes_text.insert("1.0", work_order.get("notes", ""))
+
+    def _current_work_order_id(self):
+        try:
+            wid = self.work_order_number.get().strip()
+            return int(wid) if wid else None
+        except Exception:
+            return None
+
+    def handle_edit_current(self):
+        wid = self._current_work_order_id()
+        if not wid:
+            messagebox.showwarning("Edit", "No Work Order loaded.")
+            return
+        try:
+            data = self.collect_work_order_data()
+            self.validate_work_order_data(data)
+            # reuse your existing edit_work_order(...)
+            self.edit_work_order(wid, data)
+        except ValueError as ve:
+            messagebox.showerror("Validation", str(ve))
+
+    def handle_delete_current(self):
+        wid = self._current_work_order_id()
+        if not wid:
+            messagebox.showwarning("Delete", "No Work Order loaded.")
+            return
+        if not messagebox.askyesno("Confirm", f"Delete Work Order {wid}?"):
+            return
+        self.delete_work_order(wid)
+        # clear the form a bit
+        try:
+            self.work_order_number.config(state="normal")
+            self.work_order_number.delete(0, "end")
+            self.work_order_number.config(state="readonly")
+            self.customer_id_entry.delete(0, "end")
+            self.assigned_technician.delete(0, "end")
+            self.status_combobox.set("")
+            self.priority.set("")
+            self.notes_text.delete("1.0", "end")
+        except Exception:
+            pass
